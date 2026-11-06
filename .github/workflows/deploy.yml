@@ -1,5 +1,9 @@
 name: Test & deploy to GitHub Pages
 
+# Works with either GitHub Pages setting (Settings → Pages → Build and deployment → Source):
+#   • "GitHub Actions"        → the `deploy` job publishes the build directly (recommended).
+#   • "Deploy from a branch"  → choose `gh-pages` / root; the `build` job keeps that branch up to date.
+
 on:
   push:
     branches:
@@ -7,16 +11,15 @@ on:
       - claude/pensive-sagan-3b1cjb
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the gh-pages branch
     steps:
       - uses: actions/checkout@v4
 
@@ -29,9 +32,12 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      # Publishes dist/ to the `gh-pages` branch, which GitHub Pages serves at
-      # https://<owner>.github.io/<repo>/ (Settings → Pages → Deploy from a branch → gh-pages).
-      - name: Publish to gh-pages
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./dist
+
+      - name: Publish to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,3 +45,20 @@ jobs:
           publish_branch: gh-pages
           force_orphan: true
           commit_message: 'Deploy ${{ github.sha }}'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only succeeds when the Pages source is "GitHub Actions"; with a branch source
+    # the gh-pages branch above is what gets served, so a failure here is harmless.
+    continue-on-error: true
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
