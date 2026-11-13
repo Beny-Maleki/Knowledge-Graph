@@ -133,9 +133,7 @@ Recommended dashboard settings (Authentication):
 
 `.github/workflows/deploy.yml` runs the tests and builds on every push to `main` (and the current development branch), then publishes the site.
 
-**One-time setup:** in the repository, open **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**.
-Then re-run the latest workflow (**Actions → Test & deploy to GitHub Pages → Re-run all jobs**) or push a commit.
-*(Choosing "Deploy from a branch → `gh-pages` / root" also works, because the workflow keeps that branch up to date too.)*
+GitHub Pages serves that branch (**Settings → Pages → Deploy from a branch → `gh-pages` / root**).
 
 ## License
 
