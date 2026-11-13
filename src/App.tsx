@@ -14,6 +14,7 @@ import { DraftDialog, ExpandDialog, ReviewDialog } from './components/AIDialogs'
 import { HealthDialog } from './components/HealthDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { DataDialog } from './components/DataDialog';
+import { AccountDialog } from './components/AccountDialog';
 import { useAutoSync } from './useAutoSync';
 
 function isTyping(e: KeyboardEvent) {
@@ -105,6 +106,7 @@ export default function App() {
       {dialog === 'settings' && <SettingsDialog />}
       {dialog === 'data' && <DataDialog />}
       {dialog === 'help' && <HelpDialog />}
+      {dialog === 'account' && <AccountDialog />}
       <CommandPalette />
       <ContextMenuHost />
       <NodePickerHost />

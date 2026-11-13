@@ -2,6 +2,43 @@ import { useState } from 'react';
 import { getIndex, useStore } from '../store/store';
 import { childrenOf, nodeColor } from '../lib/tree';
 import { openNodeMenu } from './ContextMenu';
+import { switchWorkspace, useCloud } from '../lib/cloud';
+
+/** Signed in: pick which cloud workspace is shown. Signed out: hint that sync exists. */
+function WorkspaceSwitcher() {
+  const user = useCloud((s) => s.user);
+  const workspaces = useCloud((s) => s.workspaces);
+  const activeId = useCloud((s) => s.activeWorkspaceId);
+  const openAccount = () => useStore.getState().openDialog('account');
+  if (!user)
+    return (
+      <button className="ws-hint" onClick={openAccount} title="Create a free account to keep this graph in sync on all your devices">
+        Saved in this browser only · <u>sign in to sync</u>
+      </button>
+    );
+  return (
+    <div className="ws-switch">
+      <span aria-hidden>☁</span>
+      <select
+        aria-label="Workspace"
+        value={activeId ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__manage') openAccount();
+          else void switchWorkspace(v).catch((err) => useStore.getState().toast(String(err?.message ?? err), 'error'));
+        }}
+      >
+        {!workspaces.some((w) => w.id === activeId) && <option value={activeId ?? ''}>Loading…</option>}
+        {workspaces.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name}
+          </option>
+        ))}
+        <option value="__manage">Manage workspaces…</option>
+      </select>
+    </div>
+  );
+}
 
 type DropPos = 'before' | 'inside' | 'after';
 
@@ -27,6 +64,7 @@ export function Sidebar() {
             ⟨
           </button>
         </div>
+        <WorkspaceSwitcher />
         <button className="search-btn" onClick={() => st.setPalette(true)}>
           <span>🔎 Search pages…</span>
           <kbd>Ctrl K</kbd>

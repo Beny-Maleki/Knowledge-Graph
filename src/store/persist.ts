@@ -1,11 +1,14 @@
-import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 import type { GraphData } from '../types';
 import { sanitizeData } from '../lib/ops';
 import { sampleData } from './sample';
 import { useStore, type UIState } from './store';
 
-const WS_KEY = 'kg:workspace:v1';
+const GUEST_KEY = 'kg:workspace:v1';
 const UI_KEY = 'kg:ui:v1';
+
+/** Where the graph currently shown is saved on this device. */
+export type StorageTarget = { kind: 'guest' } | { kind: 'cloud'; workspaceId: string };
 
 interface SavedWorkspace {
   name: string;
@@ -30,57 +33,109 @@ export function safeLocalSet(key: string, value: unknown) {
   }
 }
 
-let lastSavedAt = 0;
-export function getLastSavedAt() {
-  return lastSavedAt;
+export function cloudCacheKey(workspaceId: string) {
+  return `kg:cloud:v1:${workspaceId}`;
 }
 
-export async function initPersistence() {
-  let saved: SavedWorkspace | undefined;
+let target: StorageTarget = { kind: 'guest' };
+let timer: number | undefined;
+
+export function getStorageTarget(): StorageTarget {
+  return target;
+}
+
+function keyFor(t: StorageTarget) {
+  return t.kind === 'guest' ? GUEST_KEY : cloudCacheKey(t.workspaceId);
+}
+
+async function save(t: StorageTarget = target) {
+  const s = useStore.getState();
+  const payload: SavedWorkspace = { name: s.workspaceName, data: s.data, savedAt: Date.now() };
   try {
-    saved = await idbGet<SavedWorkspace>(WS_KEY);
+    await idbSet(keyFor(t), payload);
   } catch {
-    saved = undefined;
+    useStore.getState().toast('Could not save to browser storage (is it full or disabled?)', 'error');
   }
+}
+
+/** Write any pending change for the current target right away. */
+export async function flushSave() {
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    timer = undefined;
+    await save();
+  }
+}
+
+export async function loadSaved(t: StorageTarget): Promise<{ name: string; data: GraphData } | null> {
+  try {
+    const saved = await idbGet<SavedWorkspace>(keyFor(t));
+    return saved ? { name: saved.name, data: sanitizeData(saved.data) } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteSaved(t: StorageTarget) {
+  try {
+    await idbDel(keyFor(t));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Show a different graph (guest copy or a cloud workspace). Pending edits of
+ * the previous target are written first; undo history starts fresh.
+ */
+export async function switchTarget(next: StorageTarget, data: GraphData, name: string) {
+  await flushSave();
+  target = next;
+  useStore.getState().setLoaded(data, name, { selectedId: null, focusId: null, ...firstVisitUI(data, false) });
+  await save(next);
+}
+
+/** Load the guest graph from this browser (or the sample on a first visit). */
+export async function loadGuest(): Promise<{ name: string; data: GraphData; firstVisit: boolean }> {
+  const saved = await loadSaved({ kind: 'guest' });
+  if (saved) return { ...saved, firstVisit: false };
+  return { name: 'My knowledge', data: sampleData(), firstVisit: true };
+}
+
+export async function initPersistence(initialTarget: StorageTarget = { kind: 'guest' }) {
   const ui = safeLocalGet<Partial<UIState>>(UI_KEY) ?? {};
-  const isFirstVisit = !saved;
-  const data = saved ? sanitizeData(saved.data) : sampleData();
-  const name = saved?.name ?? 'My knowledge';
-  lastSavedAt = saved?.savedAt ?? 0;
+  let loaded: { name: string; data: GraphData; firstVisit: boolean } | null = null;
+  if (initialTarget.kind === 'cloud') {
+    const cached = await loadSaved(initialTarget);
+    if (cached) {
+      target = initialTarget;
+      loaded = { ...cached, firstVisit: false };
+    }
+  }
+  loaded ??= await loadGuest();
   const narrow = window.innerWidth <= 900;
-  useStore.getState().setLoaded(data, name, {
+  useStore.getState().setLoaded(loaded.data, loaded.name, {
     ...pickUI(ui),
     ...(narrow ? { sidebarOpen: false } : {}),
-    ...(isFirstVisit ? firstVisitUI(data) : {}),
+    ...(loaded.firstVisit ? firstVisitUI(loaded.data, true) : {}),
   });
-
-  let timer: number | undefined;
-  const save = () => {
-    const s = useStore.getState();
-    const payload: SavedWorkspace = { name: s.workspaceName, data: s.data, savedAt: Date.now() };
-    idbSet(WS_KEY, payload)
-      .then(() => {
-        lastSavedAt = payload.savedAt;
-        window.dispatchEvent(new CustomEvent('kg:saved'));
-      })
-      .catch(() => {
-        useStore.getState().toast('Could not save to browser storage (is it full or disabled?)', 'error');
-      });
-  };
-  if (isFirstVisit) save();
+  if (loaded.firstVisit) void save();
 
   useStore.subscribe((s, prev) => {
     if (s.data !== prev.data || s.workspaceName !== prev.workspaceName) {
       window.clearTimeout(timer);
-      timer = window.setTimeout(save, 400);
-      window.dispatchEvent(new CustomEvent('kg:dirty'));
+      const t = target;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void save(t);
+      }, 400);
     }
-    const ui = pickUI(s);
+    const nextUi = pickUI(s);
     const prevUi = pickUI(prev);
-    if ((Object.keys(ui) as (keyof UIState)[]).some((k) => ui[k] !== prevUi[k])) safeLocalSet(UI_KEY, ui);
+    if ((Object.keys(nextUi) as (keyof UIState)[]).some((k) => nextUi[k] !== prevUi[k])) safeLocalSet(UI_KEY, nextUi);
   });
   window.addEventListener('beforeunload', () => {
-    if (timer) save();
+    if (timer !== undefined) void save();
   });
 }
 
@@ -103,9 +158,9 @@ function pickUI(s: Partial<UIState>): Partial<UIState> {
   return out;
 }
 
-function firstVisitUI(data: GraphData): Partial<UIState> {
+function firstVisitUI(data: GraphData, selectStart: boolean): Partial<UIState> {
   const start = Object.values(data.nodes).find((n) => n.title === 'Start here');
   const expanded: Record<string, true> = {};
   for (const n of Object.values(data.nodes)) if (!n.parentId) expanded[n.id] = true;
-  return { selectedId: start?.id ?? null, expanded, outlineOpen: { ...expanded } };
+  return { ...(selectStart ? { selectedId: start?.id ?? null } : {}), expanded, outlineOpen: { ...expanded } };
 }

@@ -44,6 +44,14 @@ pages placed inside your existing structure, and helps you **expand** and **prun
 - **🩺 Health**: finds near-duplicate titles, empty stubs, broken wiki links, single-child chains, crowded groups and very deep pages, each with a one-click fix (merge, create, delete, organise…).
 - **✨ Review a branch**: the AI proposes merges, moves, renames, deletions and new groupings, and you pick which to apply.
 
+### Accounts & cloud sync (optional)
+- **Sign in** (☁ in the top bar) to store your graph in the cloud and use it on any device. Without an account, everything still works and stays in your browser.
+- Email + password sign-up, password reset, sign-in by email link, plus GitHub/Google sign-in if you enable them in Supabase.
+- **Workspaces**: keep separate graphs (e.g. one per subject) and switch between them from the sidebar.
+- **Offline-first**: each workspace is also cached on the device; edits made offline sync when you're back online. Pages sync individually, so editing different pages on two devices never conflicts; for the same page, the newer edit wins.
+- Profile name, password change, sign out (removes the synced copy from that device), and **delete account** (removes all your cloud data).
+- Backend: [Supabase](https://supabase.com) free tier (Postgres + Auth). Every table uses row-level security, so a signed-in user can only ever read or write their own rows.
+
 ### Your data stays yours
 - Saved automatically in your browser (IndexedDB). Nothing is sent anywhere unless you use AI or Sync.
 - **Export**: lossless JSON backup, or a **Markdown vault** (`.zip`, folders = hierarchy, relations as wiki links) that opens in Obsidian.
@@ -111,6 +119,15 @@ src/
     health.ts           graph health checks
   components/           Graph / Map / Tree views, page panel, dialogs
 ```
+
+### Supabase backend
+
+The database schema (profiles, workspaces, `kg_nodes`, `kg_links`, row-level-security policies, and a `delete_my_account()` function) lives in your Supabase project.
+The client reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` and falls back to the project in `src/lib/supabase.ts`. The publishable key is meant to be public; security comes from row-level security.
+
+Recommended dashboard settings (Authentication):
+- **URL Configuration** → Site URL `https://beny-maleki.github.io/Knowledge-Graph/`; also add `http://localhost:5173/` to Redirect URLs for development.
+- **Emails**: the built-in mailer on the free plan sends only a few emails per hour, and only to your project's team members. To let others sign up with email confirmation, add a free custom SMTP provider; or, for an invite-only setup, turn off sign-ups and create users under **Users → Add user** with "Auto confirm".
 
 ### Deployment
 

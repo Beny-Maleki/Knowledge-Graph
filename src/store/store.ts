@@ -6,7 +6,7 @@ import { ancestors, buildIndex, makeNode, nextOrder } from '../lib/tree';
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 1200;
 
-export type DialogKind = null | 'ingest' | 'settings' | 'data' | 'health' | 'help' | 'expand' | 'draft' | 'review';
+export type DialogKind = null | 'ingest' | 'settings' | 'data' | 'health' | 'help' | 'expand' | 'draft' | 'review' | 'account';
 
 export interface Toast {
   id: number;
@@ -84,6 +84,8 @@ interface State extends UIState {
   flashNodes: (ids: string[]) => void;
   setLoaded: (data: GraphData, name: string, ui?: Partial<UIState>) => void;
   clearEditTitle: () => void;
+  /** Merge in changes that arrived from the cloud (resets undo history). */
+  applyRemote: (data: GraphData, name?: string) => void;
 }
 
 let toastSeq = 1;
@@ -355,6 +357,12 @@ export const useStore = create<State>()((set, get) => ({
 
   setLoaded: (data, name, ui) => set({ data, workspaceName: name, loaded: true, past: [], future: [], ...(ui ?? {}) }),
   clearEditTitle: () => set({ editTitleOf: null }),
+  applyRemote: (data, name) => {
+    set({ data, past: [], future: [], lastCommit: null, ...(name !== undefined ? { workspaceName: name } : {}) });
+    const s = get();
+    if (s.selectedId && !data.nodes[s.selectedId]) set({ selectedId: null });
+    if (s.focusId && !data.nodes[s.focusId]) set({ focusId: null });
+  },
 }));
 
 /** Memoised tree index for the current data (recomputed only when nodes change). */

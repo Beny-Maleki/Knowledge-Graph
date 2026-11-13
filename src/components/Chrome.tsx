@@ -4,6 +4,8 @@ import { ancestors, excerpt, pathTitles } from '../lib/tree';
 import { searchNodes } from '../lib/search';
 import { closeDialog, Modal } from './Modal';
 import type { ViewMode } from '../types';
+import { useCloud } from '../lib/cloud';
+import { statusText } from './AccountDialog';
 
 /* ---------------- top bar ---------------- */
 
@@ -76,7 +78,28 @@ export function TopBar() {
           ?
         </button>
       </div>
+      <AccountButton />
     </header>
+  );
+}
+
+function AccountButton() {
+  const user = useCloud((s) => s.user);
+  const displayName = useCloud((s) => s.displayName);
+  const status = useCloud((s) => s.status);
+  const open = () => useStore.getState().openDialog('account');
+  if (!user)
+    return (
+      <button className="btn small account-btn" onClick={open} title="Sign in to sync your graph across devices">
+        ☁ Sign in
+      </button>
+    );
+  const label = (displayName || user.email).trim();
+  return (
+    <button className={`avatar-btn ${status}`} onClick={open} title={`${user.email} · ${statusText(status)}`}>
+      <span className="avatar">{label.slice(0, 1).toUpperCase()}</span>
+      <span className="sync-dot" />
+    </button>
   );
 }
 
