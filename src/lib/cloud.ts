@@ -16,7 +16,15 @@ import { useStore } from '../store/store';
 import { deleteSaved, getStorageTarget, loadGuest, loadSaved, safeLocalGet, safeLocalSet, switchTarget } from '../store/persist';
 import { confirmDialog } from '../components/Confirm';
 
-export type SyncStatus = 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error';
+export type SyncStatus = 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error' | 'locked';
+export type Role = 'pending' | 'member' | 'admin';
+/**
+ * ok          – cloud features available
+ * pending     – account not approved yet (no cloud access)
+ * mfa-verify  – 2FA is on: enter the authenticator code to finish signing in
+ * mfa-setup   – admins must set up 2FA before using the account
+ */
+export type Access = 'unknown' | 'ok' | 'pending' | 'mfa-verify' | 'mfa-setup';
 
 export interface Workspace {
   id: string;
@@ -34,6 +42,8 @@ interface CloudState {
   error: string;
   /** Opened from a password-reset email: ask for a new password. */
   recovery: boolean;
+  role: Role | null;
+  access: Access;
 }
 
 export const useCloud = create<CloudState>(() => ({
@@ -45,6 +55,8 @@ export const useCloud = create<CloudState>(() => ({
   lastSyncedAt: 0,
   error: '',
   recovery: false,
+  role: null,
+  access: 'unknown',
 }));
 
 /* ---------------- local bookkeeping ---------------- */
@@ -173,7 +185,7 @@ async function pushRows(table: 'kg_nodes' | 'kg_links', rows: { workspace_id: st
 async function syncRound() {
   const cloud = useCloud.getState();
   const target = getStorageTarget();
-  if (!cloud.user || target.kind !== 'cloud') return;
+  if (!cloud.user || target.kind !== 'cloud' || cloud.access !== 'ok') return;
   const wsId = target.workspaceId;
   const stillActive = () => {
     const t = getStorageTarget();
@@ -344,6 +356,21 @@ async function doActivateUser(user: User) {
   useCloud.setState({ user: { id: user.id, email }, status: 'syncing', error: '' });
   if (!prev || prev.id !== user.id || !useCloud.getState().displayName) void loadProfile(user.id);
 
+  const access = await checkAccess(user.id);
+  if (access === null) return; // offline / error already reported
+  useCloud.setState({ access });
+  if (access !== 'ok') {
+    // Locked: never show (or keep) cloud data on this device until access is granted.
+    if (getStorageTarget().kind === 'cloud') {
+      await clearLocalCloudData(user.id);
+      const guest = await loadGuest();
+      await switchTarget({ kind: 'guest' }, guest.data, guest.name);
+    }
+    useCloud.setState({ status: 'locked', workspaces: [], activeWorkspaceId: null });
+    useStore.getState().openDialog('account');
+    return;
+  }
+
   const { data: wsRows, error } = await supabase.from('workspaces').select('id,name,updated_at').order('updated_at', { ascending: false });
   if (error) {
     useCloud.setState(isNetworkError(error) ? { status: 'offline' } : { status: 'error', error: describe(error) });
@@ -409,7 +436,7 @@ async function resetToGuest() {
   await clearLocalCloudData(userId);
   const guest = await loadGuest();
   await switchTarget({ kind: 'guest' }, guest.data, guest.name);
-  useCloud.setState({ user: null, displayName: '', workspaces: [], activeWorkspaceId: null, status: 'signed-out', error: '', recovery: false });
+  useCloud.setState({ user: null, displayName: '', workspaces: [], activeWorkspaceId: null, status: 'signed-out', error: '', recovery: false, role: null, access: 'unknown' });
 }
 
 function onAuthEvent(event: AuthChangeEvent, session: Session | null) {
@@ -468,13 +495,91 @@ export async function bootCloud() {
   window.setInterval(() => {
     if (document.visibilityState === 'visible' && useCloud.getState().user) void syncNow();
   }, 30_000);
-  window.addEventListener('focus', () => useCloud.getState().user && void syncNow());
+  window.addEventListener('focus', () => {
+    const c = useCloud.getState();
+    if (!c.user) return;
+    if (c.access === 'pending') void recheckAccess();
+    else void syncNow();
+  });
   window.addEventListener('online', () => {
     const u = useCloud.getState().user;
     if (!u) return;
     if (useCloud.getState().workspaces.length) void syncNow();
     else void supabase.auth.getSession().then(({ data: d }) => d.session?.user && activateUser(d.session.user));
   });
+}
+
+/* ---------------- roles & two-factor authentication ---------------- */
+
+/** Work out what the signed-in user may do; null when it could not be determined (offline/error). */
+async function checkAccess(userId: string): Promise<Access | null> {
+  const [{ data: aal, error: aalErr }, { data: prof, error: profErr }] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.from('profiles').select('role, display_name').eq('id', userId).maybeSingle(),
+  ]);
+  const err = aalErr ?? profErr;
+  if (err) {
+    useCloud.setState(isNetworkError(err) ? { status: 'offline' } : { status: 'error', error: describe(err) });
+    return null;
+  }
+  const role = ((prof as { role?: Role } | null)?.role ?? 'pending') as Role;
+  useCloud.setState({ role, displayName: (prof as { display_name?: string | null } | null)?.display_name ?? useCloud.getState().displayName });
+  if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') return 'mfa-verify';
+  if (role === 'pending') return 'pending';
+  if (role === 'admin' && aal?.currentLevel !== 'aal2') return 'mfa-setup';
+  return 'ok';
+}
+
+/** Re-evaluate access (after 2FA, or after an admin approved the account). */
+export async function recheckAccess() {
+  await supabase.auth.refreshSession();
+  const { data } = await supabase.auth.getSession();
+  if (!data.session?.user) return;
+  activating = null;
+  await activateUser(data.session.user);
+}
+
+export async function verifyTotp(code: string) {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error) throw error;
+  const factor = data.totp.find((f) => f.status === 'verified');
+  if (!factor) throw new Error('No authenticator app is set up for this account.');
+  const { error: vErr } = await supabase.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.trim() });
+  if (vErr) throw vErr;
+  await recheckAccess();
+}
+
+export interface TotpEnrollment {
+  factorId: string;
+  qr: string;
+  secret: string;
+}
+
+export async function startTotpEnrollment(): Promise<TotpEnrollment> {
+  // Clean up half-finished enrollments so a new QR code can be created.
+  const { data: list } = await supabase.auth.mfa.listFactors();
+  for (const f of list?.all ?? []) if (f.status !== 'verified') await supabase.auth.mfa.unenroll({ factorId: f.id });
+  const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Authenticator ${new Date().toISOString().slice(0, 10)}`, issuer: 'Knowledge Graph' });
+  if (error) throw error;
+  return { factorId: data.id, qr: data.totp.qr_code, secret: data.totp.secret };
+}
+
+export async function finishTotpEnrollment(factorId: string, code: string) {
+  const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: code.trim() });
+  if (error) throw error;
+  await recheckAccess();
+}
+
+export async function listTotpFactors() {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error) throw error;
+  return data.totp.filter((f) => f.status === 'verified');
+}
+
+export async function removeTotpFactor(factorId: string) {
+  const { error } = await supabase.auth.mfa.unenroll({ factorId });
+  if (error) throw error;
+  await recheckAccess();
 }
 
 /* ---------------- account actions (used by the Account dialog) ---------------- */

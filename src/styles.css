@@ -2311,3 +2311,77 @@ table.keys td:first-child {
 .danger-zone h4 {
   color: var(--danger);
 }
+
+/* ---------- 2FA, tokens, admin ---------- */
+.code-input {
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 0.35em;
+  text-align: center;
+  width: 190px;
+  padding: 8px;
+}
+.qr-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 6px 0 8px 18px;
+}
+.qr {
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+}
+.secret {
+  font-size: 13px;
+  background: var(--bg3);
+  padding: 6px 10px;
+  border-radius: 8px;
+  word-break: break-all;
+  max-width: 260px;
+}
+.enroll ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.token-fresh {
+  border: 1px solid var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.row.wrap {
+  flex-wrap: wrap;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table.users {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.users th,
+table.users td {
+  text-align: left;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.users th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+table.users tr.pending {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}

@@ -69,6 +69,9 @@ async function authenticate(token: string): Promise<{ ownerId: string } | null> 
   const { data, error } = await admin.from('mcp_tokens').select('id, owner_id, expires_at, last_used_at').eq('token_hash', hash).maybeSingle();
   if (error || !data) return null;
   if (data.expires_at && Date.parse(data.expires_at) < Date.now()) return null;
+  // Only approved accounts may use the connector (role can be revoked at any time by an admin).
+  const { data: profile } = await admin.from('profiles').select('role').eq('id', data.owner_id).maybeSingle();
+  if (!profile || !['member', 'admin'].includes(profile.role)) return null;
   if (!data.last_used_at || Date.now() - Date.parse(data.last_used_at) > 5 * 60_000) {
     await admin.from('mcp_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
   }
@@ -497,7 +500,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonError(503, 'Could not verify the token right now. Try again.');
   }
-  if (!auth) return jsonError(401, 'This connector token is invalid, expired or revoked. Create a new one in Knowledge Graph → Account → Connect Claude.');
+  if (!auth) return jsonError(401, 'This connector token is invalid, expired or revoked, or the account is not approved. Check Knowledge Graph → Account → Connect Claude.');
   // Stateless server: no SSE stream or sessions to resume.
   if (req.method !== 'POST') return new Response(null, { status: 405, headers: { ...CORS, Allow: 'POST, OPTIONS' } });
 

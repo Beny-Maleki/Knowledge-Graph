@@ -6,6 +6,7 @@ import {
   createWorkspace,
   deleteAccount,
   deleteWorkspace,
+  recheckAccess,
   sendMagicLink,
   sendPasswordReset,
   signIn,
@@ -19,6 +20,7 @@ import {
   useCloud,
 } from '../lib/cloud';
 import { enabledProviders, type OAuthProvider } from '../lib/supabase';
+import { ConnectClaudeSection, MfaVerify, TwoFactorSection } from './SecurityPanels';
 
 function errText(e: unknown): string {
   const err = e as { message?: string; code?: string; status?: number };
@@ -36,6 +38,18 @@ function errText(e: unknown): string {
 export function AccountDialog() {
   const user = useCloud((s) => s.user);
   const recovery = useCloud((s) => s.recovery);
+  const access = useCloud((s) => s.access);
+  if (user && access === 'mfa-verify' && !recovery)
+    return (
+      <Modal title="Two-step verification" onClose={closeDialog}>
+        <MfaVerify />
+        <div className="auth-links small">
+          <button className="link-btn" onClick={() => void signOut().then(closeDialog)}>
+            Sign out instead
+          </button>
+        </div>
+      </Modal>
+    );
   return (
     <Modal title={recovery ? 'Set a new password' : user ? 'Your account' : 'Sign in to sync'} onClose={closeDialog} wide={!!user && !recovery}>
       {recovery ? <NewPassword /> : user ? <AccountPanel /> : <SignInPanel />}
@@ -80,7 +94,7 @@ function SignInPanel() {
       void run(async () => {
         await signIn(email.trim(), password);
         closeDialog();
-        useStore.getState().toast('Signed in — your graph now syncs to the cloud', 'success');
+        useStore.getState().toast('Signed in', 'success');
       });
     else if (mode === 'signup')
       void run(async () => {
@@ -88,7 +102,7 @@ function SignInPanel() {
         if (r.needsConfirmation) setInfo('Almost done! We sent a confirmation link to your email. Open it on this device to finish creating your account.');
         else {
           closeDialog();
-          useStore.getState().toast('Account created — your graph now syncs to the cloud', 'success');
+          useStore.getState().toast('Account created', 'success');
         }
       });
     else if (mode === 'reset')
@@ -238,6 +252,8 @@ function AccountPanel() {
   const status = useCloud((s) => s.status);
   const lastSyncedAt = useCloud((s) => s.lastSyncedAt);
   const syncError = useCloud((s) => s.error);
+  const access = useCloud((s) => s.access);
+  const role = useCloud((s) => s.role);
   const [name, setName] = useState(displayName);
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState('');
@@ -310,6 +326,19 @@ function AccountPanel() {
         </div>
       </section>
 
+      {access === 'pending' && (
+        <section className="acc-section">
+          <div className="callout">
+            <b>Your account is waiting for approval.</b> Cloud sync, workspaces and the Claude connector unlock once an administrator activates your account. Until then you can keep using the app in this browser.
+          </div>
+          <button className="btn small" disabled={busy !== ''} onClick={() => run('chk', () => recheckAccess())}>
+            Check again
+          </button>
+        </section>
+      )}
+      {access === 'mfa-setup' && <TwoFactorSection required />}
+      {access === 'ok' && (
+        <>
       <section className="acc-section">
         <h4>Workspaces</h4>
         <p className="muted small">Separate knowledge graphs — e.g. one per subject. All of them sync to every device you sign in on.</p>
@@ -358,6 +387,19 @@ function AccountPanel() {
           </button>
         </form>
       </section>
+
+          <TwoFactorSection />
+          <ConnectClaudeSection />
+          {role === 'admin' && (
+            <section className="acc-section row gap">
+              <button className="btn" onClick={() => useStore.getState().openDialog('admin')}>
+                👥 Manage users
+              </button>
+              <span className="muted small">Approve sign-ups, change roles, remove accounts.</span>
+            </section>
+          )}
+        </>
+      )}
 
       {msg && <p className={msg.ok ? 'ok small' : 'error small'}>{msg.text}</p>}
 
@@ -415,6 +457,8 @@ export function statusText(s: ReturnType<typeof useCloud.getState>['status']): s
       return 'Offline — changes are kept and will sync';
     case 'error':
       return 'Sync problem';
+    case 'locked':
+      return 'Cloud not active';
     default:
       return 'Not signed in';
   }

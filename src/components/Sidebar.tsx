@@ -9,11 +9,18 @@ function WorkspaceSwitcher() {
   const user = useCloud((s) => s.user);
   const workspaces = useCloud((s) => s.workspaces);
   const activeId = useCloud((s) => s.activeWorkspaceId);
+  const access = useCloud((s) => s.access);
   const openAccount = () => useStore.getState().openDialog('account');
   if (!user)
     return (
       <button className="ws-hint" onClick={openAccount} title="Create a free account to keep this graph in sync on all your devices">
         Saved in this browser only · <u>sign in to sync</u>
+      </button>
+    );
+  if (access !== 'ok' && access !== 'unknown')
+    return (
+      <button className="ws-hint" onClick={openAccount}>
+        {access === 'pending' ? 'Account waiting for approval · this browser only' : 'Finish two-factor sign-in to sync'} · <u>details</u>
       </button>
     );
   return (

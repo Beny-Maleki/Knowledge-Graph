@@ -15,6 +15,7 @@ import { HealthDialog } from './components/HealthDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { DataDialog } from './components/DataDialog';
 import { AccountDialog } from './components/AccountDialog';
+import { AdminDialog } from './components/AdminDialog';
 import { useAutoSync } from './useAutoSync';
 
 function isTyping(e: KeyboardEvent) {
@@ -107,6 +108,7 @@ export default function App() {
       {dialog === 'data' && <DataDialog />}
       {dialog === 'help' && <HelpDialog />}
       {dialog === 'account' && <AccountDialog />}
+      {dialog === 'admin' && <AdminDialog />}
       <CommandPalette />
       <ContextMenuHost />
       <NodePickerHost />

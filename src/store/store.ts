@@ -6,7 +6,7 @@ import { ancestors, buildIndex, makeNode, nextOrder } from '../lib/tree';
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 1200;
 
-export type DialogKind = null | 'ingest' | 'settings' | 'data' | 'health' | 'help' | 'expand' | 'draft' | 'review' | 'account';
+export type DialogKind = null | 'ingest' | 'settings' | 'data' | 'health' | 'help' | 'expand' | 'draft' | 'review' | 'account' | 'admin';
 
 export interface Toast {
   id: number;
