@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { confirmDialog } from './Confirm';
+import { closeDialog } from './Modal';
 import { useStore } from '../store/store';
 import { finishTotpEnrollment, listTotpFactors, removeTotpFactor, startTotpEnrollment, useCloud, verifyTotp, type TotpEnrollment } from '../lib/cloud';
 import { supabase, SUPABASE_URL } from '../lib/supabase';
@@ -41,6 +42,7 @@ export function MfaVerify() {
         setError('');
         try {
           await verifyTotp(code);
+          closeDialog();
           useStore.getState().toast('Verified — welcome back', 'success');
         } catch (err) {
           setError(msg(err));

@@ -52,6 +52,11 @@ pages placed inside your existing structure, and helps you **expand** and **prun
 - Profile name, password change, sign out (removes the synced copy from that device), and **delete account** (removes all your cloud data).
 - Backend: [Supabase](https://supabase.com) free tier (Postgres + Auth). Every table uses row-level security, so a signed-in user can only ever read or write their own rows.
 
+### Roles, two-factor sign-in & the Claude connector
+- **Roles**: new sign-ups are *pending* and can only use the app locally. An admin approves them as *member* (cloud sync, workspaces, Claude connector) under **Account → 👥 Manage users**. Admins can't read anyone's notes.
+- **Two-factor authentication** with an authenticator app (Google Authenticator, Authy, 1Password…). It's free and sends no email or SMS. It's required for admins, and anyone who turns it on must use it at every sign-in.
+- **Connect Claude**: under **Account → Connect Claude**, create a connector link. In claude.ai open **Settings → Connectors → Add custom connector** and paste the link. Claude can then read your outline, search and read pages, and add pages and relations (duplicates are merged), plus update or delete pages and remove relations. Links can expire and can be revoked at any time; only a hash of each link is stored.
+
 ### Your data stays yours
 - Saved automatically in your browser (IndexedDB). Nothing is sent anywhere unless you use AI or Sync.
 - **Export**: lossless JSON backup, or a **Markdown vault** (`.zip`, folders = hierarchy, relations as wiki links) that opens in Obsidian.
@@ -121,6 +126,10 @@ src/
 ```
 
 ### Supabase backend
+
+- `supabase/migrations/`: the database schema (tables, row-level security, roles/2FA rules, admin functions).
+- `supabase/functions/mcp/`: the Claude connector (Edge Function). Deploy it with JWT verification **off**, because it checks its own tokens.
+
 
 The database schema (profiles, workspaces, `kg_nodes`, `kg_links`, row-level-security policies, and a `delete_my_account()` function) lives in your Supabase project.
 The client reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` and falls back to the project in `src/lib/supabase.ts`. The publishable key is meant to be public; security comes from row-level security.
